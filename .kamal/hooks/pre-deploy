@@ -1,0 +1,42 @@
+#!/bin/bash
+# Pre-deploy hook - ensures database replication is healthy before deploying app
+
+set -e
+
+source .kamal/secrets
+
+ROOT_PASS="${MYSQL_ROOT_PASSWORD}"
+MASTER_HOST="${KAMAL_MASTER_HOST:-192.168.0.1}"
+SLAVE_HOST="${KAMAL_SLAVE_HOST:-192.168.0.2}"
+
+echo "=== Pre-deploy: Checking database health ==="
+
+# Check if master is accessible
+echo "Checking master database..."
+if ssh root@$MASTER_HOST "docker exec erpnext-db-master mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+    echo "✓ Master database is healthy"
+else
+    echo "✗ Master database is not accessible"
+    exit 1
+fi
+
+# Check if slave is accessible and replicating
+echo "Checking slave database..."
+if ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+    echo "✓ Slave database is accessible"
+
+    # Check replication status
+    SLAVE_IO=$(ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_IO_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
+    SLAVE_SQL=$(ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_SQL_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
+
+    if [[ "$SLAVE_IO" == "Yes" && "$SLAVE_SQL" == "Yes" ]]; then
+        echo "✓ Replication is running"
+    else
+        echo "⚠ Replication is not running (IO: $SLAVE_IO, SQL: $SLAVE_SQL)"
+        echo "  This is a warning - deployment will continue"
+    fi
+else
+    echo "⚠ Slave database is not accessible - continuing without slave check"
+fi
+
+echo "=== Pre-deploy checks passed ==="

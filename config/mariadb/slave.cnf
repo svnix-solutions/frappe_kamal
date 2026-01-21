@@ -1,0 +1,40 @@
+[mysqld]
+# Server ID - must be unique across all servers
+server-id = 2
+
+# Relay log settings
+relay-log = relay-bin
+relay-log-index = relay-bin.index
+log_slave_updates = ON
+
+# Read-only mode for slave (recommended)
+read_only = ON
+super_read_only = ON
+
+# Binary logging (optional, for cascading replication)
+log-bin = mysql-bin
+binlog-format = ROW
+binlog-row-image = FULL
+expire_logs_days = 7
+
+# Character set
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+
+# Performance tuning
+innodb_buffer_pool_size = 1G
+innodb_log_file_size = 256M
+innodb_file_per_table = 1
+max_connections = 200
+
+# ERPNext recommended settings
+innodb_read_io_threads = 4
+innodb_write_io_threads = 4
+
+# GTID-based replication
+gtid_domain_id = 1
+gtid_strict_mode = ON
+
+# Parallel replication
+slave_parallel_threads = 4
+slave_parallel_mode = optimistic

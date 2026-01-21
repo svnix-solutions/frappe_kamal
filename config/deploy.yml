@@ -1,0 +1,155 @@
+# ERPNext Kamal Deployment Configuration
+service: erpnext
+
+# Docker Hub image - replace 'your-dockerhub-username' with your actual username
+image: your-dockerhub-username/erpnext
+
+# Deploy to these servers - replace with your actual VPS IPs
+servers:
+  web:
+    - 192.168.0.1  # TODO: Replace with your web server IP
+  worker:
+    hosts:
+      - 192.168.0.1  # TODO: Replace with your worker server IP
+    cmd: bench worker --queue short,default,long
+
+# SSL and proxy configuration
+proxy:
+  ssl: true
+  host: erp.example.com  # TODO: Replace with your domain
+  app_port: 8000
+
+# Docker Hub registry
+registry:
+  username: your-dockerhub-username  # TODO: Replace with your Docker Hub username
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Builder configuration
+builder:
+  arch: amd64
+  context: .
+  dockerfile: Dockerfile
+
+# Environment variables
+env:
+  clear:
+    # Frappe/ERPNext settings
+    FRAPPE_SITE_NAME_HEADER: erp.example.com  # TODO: Replace with your domain
+    DB_HOST: erpnext-db-master
+    DB_PORT: "3306"
+    REDIS_CACHE: redis://erpnext-redis-cache:6379
+    REDIS_QUEUE: redis://erpnext-redis-queue:6379
+    SOCKETIO_PORT: "9000"
+  secret:
+    - DB_PASSWORD
+    - ADMIN_PASSWORD
+
+# SSH configuration
+ssh:
+  user: root  # Change if using different user
+
+# Persistent storage volumes
+volumes:
+  - "erpnext_sites:/home/frappe/frappe-bench/sites"
+  - "erpnext_logs:/home/frappe/frappe-bench/logs"
+
+# Accessory services
+accessories:
+  # ============================================
+  # MariaDB Master (Primary)
+  # ============================================
+  db-master:
+    image: mariadb:10.6
+    host: 192.168.0.1  # TODO: Replace with your MASTER database server IP
+    port: 3306
+    env:
+      clear:
+        MYSQL_ROOT_HOST: '%'
+        MYSQL_DATABASE: erpnext
+        MYSQL_USER: erpnext
+        MARIADB_AUTO_UPGRADE: "1"
+      secret:
+        - MYSQL_ROOT_PASSWORD
+        - MYSQL_PASSWORD
+    files:
+      - config/mariadb/master.cnf:/etc/mysql/conf.d/master.cnf
+    directories:
+      - data:/var/lib/mysql
+
+  # ============================================
+  # MariaDB Slave (Replica)
+  # ============================================
+  db-slave:
+    image: mariadb:10.6
+    host: 192.168.0.2  # TODO: Replace with your SLAVE database server IP
+    port: 3306
+    env:
+      clear:
+        MYSQL_ROOT_HOST: '%'
+        MARIADB_AUTO_UPGRADE: "1"
+      secret:
+        - MYSQL_ROOT_PASSWORD
+    files:
+      - config/mariadb/slave.cnf:/etc/mysql/conf.d/slave.cnf
+    directories:
+      - data:/var/lib/mysql
+
+  # ============================================
+  # Database Backup Service
+  # ============================================
+  db-backup:
+    image: fradelg/mysql-cron-backup:latest
+    host: 192.168.0.1  # TODO: Deploy on master or dedicated backup server
+    env:
+      clear:
+        MYSQL_HOST: erpnext-db-master
+        MYSQL_PORT: "3306"
+        MYSQL_USER: root
+        MAX_BACKUPS: "7"
+        INIT_BACKUP: "1"
+        # Backup schedule: daily at 2 AM
+        CRON_TIME: "0 2 * * *"
+        GZIP_LEVEL: "9"
+      secret:
+        - MYSQL_PASS
+    directories:
+      - backups:/backup
+
+  # ============================================
+  # Redis Cache
+  # ============================================
+  redis-cache:
+    image: redis:7-alpine
+    host: 192.168.0.1  # TODO: Replace with your redis server IP
+    port: 6379
+    cmd: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    directories:
+      - cache-data:/data
+
+  # ============================================
+  # Redis Queue
+  # ============================================
+  redis-queue:
+    image: redis:7-alpine
+    host: 192.168.0.1  # TODO: Replace with your redis server IP
+    port: 6380
+    cmd: redis-server --appendonly yes
+    directories:
+      - queue-data:/data
+
+# Health check
+healthcheck:
+  path: /api/method/ping
+  port: 8000
+  interval: 30
+  timeout: 10
+
+# Deployment aliases
+aliases:
+  shell: app exec --interactive --reuse "bash"
+  console: app exec --interactive --reuse "bench console"
+  logs: app logs -f
+  # Database management aliases
+  db-shell: accessory exec db-master "mariadb -u root -p"
+  db-backup-now: accessory exec db-backup "/backup.sh"
