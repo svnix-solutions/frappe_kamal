@@ -46,7 +46,7 @@ builder:
     FRAPPE_PATH: https://github.com/frappe/frappe
     PYTHON_VERSION: 3.11.6
     NODE_VERSION: 20.19.2
-    APPS_JSON_BASE64: ${APPS_JSON_BASE64}
+    APPS_JSON_BASE64: <%= Base64.strict_encode64(File.read('apps.json')) rescue '' %>
 
 # Environment variables
 env:
@@ -64,7 +64,7 @@ env:
 
 # SSH configuration
 ssh:
-  user: root  # Change if using different user
+  user: <%= ENV.fetch('SSH_USER', 'root') %>
 
 # Persistent storage volumes
 volumes:

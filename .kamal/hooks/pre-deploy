@@ -1,5 +1,6 @@
 #!/bin/bash
-# Pre-deploy hook - ensures database replication is healthy before deploying app
+# Pre-deploy hook - ensures database is healthy before deploying app
+# Supports both single-server (deploy.shared.yml) and multi-server (deploy.yml) configurations
 # Skipped during initial setup when databases don't exist yet
 
 set -e
@@ -7,21 +8,44 @@ set -e
 source .kamal/secrets 2>/dev/null || true
 
 ROOT_PASS="${MYSQL_ROOT_PASSWORD}"
-MASTER_HOST="${KAMAL_MASTER_HOST:-192.168.0.1}"
-SLAVE_HOST="${KAMAL_SLAVE_HOST:-192.168.0.2}"
+PRIMARY_HOST="${PRIMARY_HOST:-192.168.0.1}"
+REPLICA_HOST="${REPLICA_HOST:-$PRIMARY_HOST}"
+SSH_USER="${SSH_USER:-root}"
 
 echo "=== Pre-deploy: Checking database health ==="
 
-# Check if master container exists first
-if ! ssh -o ConnectTimeout=5 root@$MASTER_HOST "docker ps -q -f name=erpnext-db-master" 2>/dev/null | grep -q .; then
-    echo "⚠ Master database container not found - skipping checks (initial setup)"
+# Detect deployment mode by checking which container exists
+# Single-server mode: erpnext-db
+# Multi-server mode: erpnext-db-master / erpnext-db-slave
+
+# Check for single-server mode first (erpnext-db)
+if ssh -o ConnectTimeout=5 ${SSH_USER}@$PRIMARY_HOST "docker ps -q -f name=erpnext-db$" 2>/dev/null | grep -q .; then
+    echo "Detected single-server deployment mode"
+
+    echo "Checking database..."
+    if ssh ${SSH_USER}@$PRIMARY_HOST "docker exec erpnext-db mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+        echo "✓ Database is healthy"
+    else
+        echo "✗ Database is not accessible"
+        exit 1
+    fi
+
+    echo "=== Pre-deploy checks passed ==="
+    exit 0
+fi
+
+# Check for multi-server mode (erpnext-db-master)
+if ! ssh -o ConnectTimeout=5 ${SSH_USER}@$PRIMARY_HOST "docker ps -q -f name=erpnext-db-master" 2>/dev/null | grep -q .; then
+    echo "⚠ No database container found - skipping checks (initial setup)"
     echo "=== Pre-deploy checks skipped (first deployment) ==="
     exit 0
 fi
 
+echo "Detected multi-server deployment mode"
+
 # Check if master is accessible
 echo "Checking master database..."
-if ssh root@$MASTER_HOST "docker exec erpnext-db-master mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+if ssh ${SSH_USER}@$PRIMARY_HOST "docker exec erpnext-db-master mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
     echo "✓ Master database is healthy"
 else
     echo "✗ Master database is not accessible"
@@ -29,7 +53,7 @@ else
 fi
 
 # Check if slave container exists
-if ! ssh -o ConnectTimeout=5 root@$SLAVE_HOST "docker ps -q -f name=erpnext-db-slave" 2>/dev/null | grep -q .; then
+if ! ssh -o ConnectTimeout=5 ${SSH_USER}@$REPLICA_HOST "docker ps -q -f name=erpnext-db-slave" 2>/dev/null | grep -q .; then
     echo "⚠ Slave database container not found - skipping slave checks"
     echo "=== Pre-deploy checks passed ==="
     exit 0
@@ -37,12 +61,12 @@ fi
 
 # Check if slave is accessible and replicating
 echo "Checking slave database..."
-if ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+if ssh ${SSH_USER}@$REPLICA_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
     echo "✓ Slave database is accessible"
 
     # Check replication status
-    SLAVE_IO=$(ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_IO_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
-    SLAVE_SQL=$(ssh root@$SLAVE_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_SQL_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
+    SLAVE_IO=$(ssh ${SSH_USER}@$REPLICA_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_IO_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
+    SLAVE_SQL=$(ssh ${SSH_USER}@$REPLICA_HOST "docker exec erpnext-db-slave mariadb -u root -p${ROOT_PASS} -N -e \"SHOW SLAVE STATUS\\G\" | grep 'Slave_SQL_Running:' | awk '{print \$2}'" 2>/dev/null || echo "No")
 
     if [[ "$SLAVE_IO" == "Yes" && "$SLAVE_SQL" == "Yes" ]]; then
         echo "✓ Replication is running"

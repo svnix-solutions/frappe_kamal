@@ -18,6 +18,7 @@ SLAVE_CONTAINER="erpnext-db-slave"
 REPL_USER="${REPLICATION_USER:-repl_user}"
 REPL_PASS="${REPLICATION_PASSWORD}"
 ROOT_PASS="${MYSQL_ROOT_PASSWORD}"
+SSH_USER="${SSH_USER:-root}"
 
 # Wait for MariaDB to be ready
 wait_for_mysql() {
@@ -25,7 +26,7 @@ wait_for_mysql() {
     local container=$2
     echo "Waiting for MariaDB on $host ($container) to be ready..."
     for i in {1..30}; do
-        if ssh root@$host "docker exec $container mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+        if ssh ${SSH_USER}@$host "docker exec $container mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
             echo "MariaDB is ready on $host"
             return 0
         fi
@@ -43,7 +44,7 @@ setup_master() {
     wait_for_mysql "$host" "$MASTER_CONTAINER"
 
     # Create replication user
-    ssh root@$host "docker exec $MASTER_CONTAINER mariadb -u root -p${ROOT_PASS} -e \"
+    ssh ${SSH_USER}@$host "docker exec $MASTER_CONTAINER mariadb -u root -p${ROOT_PASS} -e \"
         CREATE USER IF NOT EXISTS '${REPL_USER}'@'%' IDENTIFIED BY '${REPL_PASS}';
         GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${REPL_USER}'@'%';
         FLUSH PRIVILEGES;
@@ -61,7 +62,7 @@ setup_slave() {
     wait_for_mysql "$slave_host" "$SLAVE_CONTAINER"
 
     # Get GTID position from master
-    GTID_POS=$(ssh root@$master_host "docker exec $MASTER_CONTAINER mariadb -u root -p${ROOT_PASS} -N -e 'SELECT @@gtid_current_pos'" | tr -d '[:space:]')
+    GTID_POS=$(ssh ${SSH_USER}@$master_host "docker exec $MASTER_CONTAINER mariadb -u root -p${ROOT_PASS} -N -e 'SELECT @@gtid_current_pos'" | tr -d '[:space:]')
 
     if [ -z "$GTID_POS" ]; then
         echo "Warning: No GTID position found, using fresh start"
@@ -69,7 +70,7 @@ setup_slave() {
     fi
 
     # Configure slave
-    ssh root@$slave_host "docker exec $SLAVE_CONTAINER mariadb -u root -p${ROOT_PASS} -e \"
+    ssh ${SSH_USER}@$slave_host "docker exec $SLAVE_CONTAINER mariadb -u root -p${ROOT_PASS} -e \"
         STOP SLAVE;
         RESET SLAVE ALL;
         $([ -n "$GTID_POS" ] && echo "SET GLOBAL gtid_slave_pos = '${GTID_POS}';")
@@ -86,7 +87,7 @@ setup_slave() {
     # Verify replication status
     sleep 3
     echo "=== Replication Status ==="
-    ssh root@$slave_host "docker exec $SLAVE_CONTAINER mariadb -u root -p${ROOT_PASS} -e 'SHOW SLAVE STATUS\G'" | grep -E "Slave_IO_Running|Slave_SQL_Running|Seconds_Behind_Master|Last_Error" || true
+    ssh ${SSH_USER}@$slave_host "docker exec $SLAVE_CONTAINER mariadb -u root -p${ROOT_PASS} -e 'SHOW SLAVE STATUS\G'" | grep -E "Slave_IO_Running|Slave_SQL_Running|Seconds_Behind_Master|Last_Error" || true
 
     echo "Slave setup complete."
 }
@@ -100,7 +101,7 @@ case "$KAMAL_ACCESSORY" in
         ;;
     db-slave)
         # Extract hosts - assumes master is first, slave is second
-        MASTER_HOST="${KAMAL_MASTER_HOST:-192.168.0.1}"  # Set via env or default
+        MASTER_HOST="${PRIMARY_HOST:-192.168.0.1}"  # Set via env or default
         SLAVE_HOST=$(echo "$KAMAL_HOSTS" | tr ',' '\n' | head -1)
         setup_slave "$MASTER_HOST" "$SLAVE_HOST"
         ;;
