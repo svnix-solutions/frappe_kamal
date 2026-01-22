@@ -1,11 +1,12 @@
-# ERPNext Kamal Deployment Configuration
+# ERPNext Kamal Deployment Configuration - Single Server Variant
+# All services run on one server (no replication, no slave)
 service: erpnext
 
 # Docker Hub image
 image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
 
-# Server roles configuration
-# Hosts are read from environment variables
+# Single server configuration
+# Web, worker, and all accessories run on the same host
 servers:
   web:
     hosts:
@@ -14,18 +15,10 @@ servers:
       memory: 2g
   worker:
     hosts:
-      - <%= ENV.fetch('REPLICA_HOST') %>
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     cmd: bench worker --queue short,default,long
     options:
       memory: 1g
-  db-primary:
-    hosts:
-      - <%= ENV.fetch('PRIMARY_HOST') %>
-    proxy: false
-  db-replica:
-    hosts:
-      - <%= ENV.fetch('REPLICA_HOST') %>
-    proxy: false
 
 # SSL and proxy configuration
 proxy:
@@ -60,7 +53,7 @@ env:
   clear:
     # Frappe/ERPNext settings
     FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-    DB_HOST: erpnext-db-master
+    DB_HOST: erpnext-db
     DB_PORT: "3306"
     REDIS_CACHE: redis://erpnext-redis-cache:6379
     REDIS_QUEUE: redis://erpnext-redis-queue:6379
@@ -78,16 +71,15 @@ volumes:
   - "erpnext_sites:/home/frappe/frappe-bench/sites"
   - "erpnext_logs:/home/frappe/frappe-bench/logs"
 
-# Accessory services
-# Using roles to reference servers defined above
+# Accessory services - all on single host
 accessories:
   # ============================================
-  # MariaDB Master (Primary)
+  # MariaDB (Single Instance)
   # ============================================
-  db-master:
+  db:
     image: mariadb:10.6
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "3306:3306"
     env:
       clear:
@@ -99,28 +91,7 @@ accessories:
         - MYSQL_ROOT_PASSWORD
         - MYSQL_PASSWORD
     files:
-      - config/mariadb/replication/master.cnf:/etc/mysql/conf.d/master.cnf
-    directories:
-      - data:/var/lib/mysql
-    options:
-      ulimit: "nofile=262144:262144"
-
-  # ============================================
-  # MariaDB Slave (Replica)
-  # ============================================
-  db-slave:
-    image: mariadb:10.6
-    roles:
-      - db-replica
-    port: "3306:3306"
-    env:
-      clear:
-        MYSQL_ROOT_HOST: '%'
-        MARIADB_AUTO_UPGRADE: "1"
-      secret:
-        - MYSQL_ROOT_PASSWORD
-    files:
-      - config/mariadb/replication/slave.cnf:/etc/mysql/conf.d/slave.cnf
+      - config/mariadb/mariadb.cnf:/etc/mysql/conf.d/custom.cnf
     directories:
       - data:/var/lib/mysql
     options:
@@ -131,11 +102,11 @@ accessories:
   # ============================================
   db-backup:
     image: fradelg/mysql-cron-backup:latest
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     env:
       clear:
-        MYSQL_HOST: erpnext-db-master
+        MYSQL_HOST: erpnext-db
         MYSQL_PORT: "3306"
         MYSQL_USER: root
         MAX_BACKUPS: "7"
@@ -152,8 +123,8 @@ accessories:
   # ============================================
   redis-cache:
     image: redis:7-alpine
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "6379:6379"
     cmd: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     directories:
@@ -164,8 +135,8 @@ accessories:
   # ============================================
   redis-queue:
     image: redis:7-alpine
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "6380:6379"
     cmd: redis-server --appendonly yes
     directories:
@@ -176,5 +147,5 @@ aliases:
   shell: app exec --interactive --reuse "bash"
   console: app exec --interactive --reuse "bench console"
   logs: app logs -f
-  db-shell: accessory exec db-master "mariadb -u root -p"
+  db-shell: accessory exec db "mariadb -u root -p"
   db-backup-now: accessory exec db-backup "/backup.sh"
