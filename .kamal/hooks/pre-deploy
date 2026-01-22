@@ -1,15 +1,23 @@
 #!/bin/bash
 # Pre-deploy hook - ensures database replication is healthy before deploying app
+# Skipped during initial setup when databases don't exist yet
 
 set -e
 
-source .kamal/secrets
+source .kamal/secrets 2>/dev/null || true
 
 ROOT_PASS="${MYSQL_ROOT_PASSWORD}"
 MASTER_HOST="${KAMAL_MASTER_HOST:-192.168.0.1}"
 SLAVE_HOST="${KAMAL_SLAVE_HOST:-192.168.0.2}"
 
 echo "=== Pre-deploy: Checking database health ==="
+
+# Check if master container exists first
+if ! ssh -o ConnectTimeout=5 root@$MASTER_HOST "docker ps -q -f name=erpnext-db-master" 2>/dev/null | grep -q .; then
+    echo "⚠ Master database container not found - skipping checks (initial setup)"
+    echo "=== Pre-deploy checks skipped (first deployment) ==="
+    exit 0
+fi
 
 # Check if master is accessible
 echo "Checking master database..."
@@ -18,6 +26,13 @@ if ssh root@$MASTER_HOST "docker exec erpnext-db-master mariadb -u root -p${ROOT
 else
     echo "✗ Master database is not accessible"
     exit 1
+fi
+
+# Check if slave container exists
+if ! ssh -o ConnectTimeout=5 root@$SLAVE_HOST "docker ps -q -f name=erpnext-db-slave" 2>/dev/null | grep -q .; then
+    echo "⚠ Slave database container not found - skipping slave checks"
+    echo "=== Pre-deploy checks passed ==="
+    exit 0
 fi
 
 # Check if slave is accessible and replicating

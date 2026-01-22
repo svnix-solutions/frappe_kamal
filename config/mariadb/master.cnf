@@ -1,35 +1,80 @@
 [mysqld]
-# Server ID - must be unique across all servers
-server-id = 1
 
-# Binary logging for replication
-log-bin = mysql-bin
-binlog-format = ROW
-binlog-row-image = FULL
-expire_logs_days = 7
-max_binlog_size = 100M
+# GENERAL #
+default-storage-engine          = InnoDB
 
-# Sync binlog to disk for safety
-sync_binlog = 1
+# MyISAM #
+key-buffer-size                 = 32M
+myisam-recover-options          = FORCE
 
-# InnoDB settings for durability
-innodb_flush_log_at_trx_commit = 1
+# SAFETY #
+max-connect-errors              = 1000000
+innodb                          = FORCE
 
-# Character set
-character-set-server = utf8mb4
-collation-server = utf8mb4_unicode_ci
+# DATA STORAGE #
+datadir                         = /var/lib/mysql/
 
-# Performance tuning
-innodb_buffer_pool_size = 1G
-innodb_log_file_size = 256M
-innodb_file_per_table = 1
-max_connections = 200
+# BINARY LOGGING #
+log-bin                         = /var/lib/mysql/mysql-bin
+log_bin_index                   = /var/lib/mysql/mysql-bin.index
+expire-logs-days                = 14
+sync-binlog                     = 1
+binlog-format                   = ROW
+binlog-row-image                = FULL
+max_binlog_size                 = 100M
 
-# ERPNext recommended settings
-innodb_read_io_threads = 4
-innodb_write_io_threads = 4
+# REPLICATION #
+server-id                       = 1
+gtid_domain_id                  = 1
+gtid_strict_mode                = ON
+log_slave_updates               = ON
 
-# GTID-based replication (recommended)
-gtid_domain_id = 1
-gtid_strict_mode = ON
-log_slave_updates = ON
+# CACHES AND LIMITS #
+tmp-table-size                  = 32M
+max-heap-table-size             = 32M
+query-cache-type                = 0
+query-cache-size                = 0
+max-connections                 = 200
+thread-cache-size               = 50
+open-files-limit                = 65535
+table-definition-cache          = 4096
+table-open-cache                = 10240
+tmp-disk-table-size             = 5120M
+max-statement-time              = 3600
+port                            = 3306
+extra_port                      = 3307
+extra_max_connections           = 5
+
+# INNODB #
+innodb-flush-method             = O_DIRECT
+innodb-log-files-in-group       = 2
+innodb-log-file-size            = 512M
+innodb-flush-log-at-trx-commit  = 1
+innodb-file-per-table           = 1
+innodb-buffer-pool-size         = 1G
+innodb-large-prefix             = 1
+innodb-old-blocks-time          = 5000
+innodb_print_all_deadlocks      = ON
+innodb_read_io_threads          = 4
+innodb_write_io_threads         = 4
+
+# CHARACTER SET #
+collation-server                = utf8mb4_unicode_ci
+character-set-server            = utf8mb4
+character-set-client-handshake  = FALSE
+max_allowed_packet              = 512M
+
+# LOGGING #
+log-error                       = /var/lib/mysql/mysql-error.log
+log-queries-not-using-indexes   = 0
+slow-query-log                  = 1
+slow-query-log-file             = /var/lib/mysql/mysql-slow.log
+
+# NETWORKING #
+bind-address                    = 0.0.0.0
+
+[mysql]
+default-character-set           = utf8mb4
+
+[mysqldump]
+max_allowed_packet              = 512M

@@ -160,6 +160,24 @@ Check replication status:
 kamal accessory exec db-slave "mariadb -u root -p -e 'SHOW SLAVE STATUS\G'" | grep -E "Running|Behind"
 ```
 
+## Local Testing with Multipass
+
+Test the full deployment locally using [Multipass](https://multipass.run/) VMs:
+
+```bash
+# Create test VMs (2x Ubuntu 22.04 with Docker)
+./test/setup-multipass.sh
+
+# Follow the output instructions to update deploy.yml with VM IPs
+# Then run:
+kamal setup
+
+# Cleanup when done
+./test/cleanup-multipass.sh
+```
+
+Requirements: 8GB+ RAM, Multipass installed
+
 ## License
 
 MIT
