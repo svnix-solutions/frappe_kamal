@@ -9,6 +9,7 @@ Deploy ERPNext on VPS servers using [Kamal](https://kamal-deploy.org/) with Mari
 - 💾 Automated daily backups with 7-day retention
 - 🔒 SSL/TLS via Kamal proxy
 - 📦 Docker Hub registry integration
+- 🛠️ Custom app support via `apps.json`
 
 ## Architecture
 
@@ -46,7 +47,30 @@ Edit `config/deploy.yml` and replace:
 - `192.168.0.1` / `192.168.0.2` → your server IPs
 - `erp.example.com` → your domain
 
-### 2. Set Environment Variables
+### 2. Configure Apps (Optional)
+
+Edit `apps.json` to add custom Frappe apps:
+
+```json
+[
+  {
+    "url": "https://github.com/frappe/erpnext",
+    "branch": "version-15"
+  },
+  {
+    "url": "https://github.com/frappe/hrms",
+    "branch": "version-15"
+  },
+  {
+    "url": "https://github.com/your-org/custom-app",
+    "branch": "main"
+  }
+]
+```
+
+For private repos, use: `https://{PAT}@github.com/org/repo.git`
+
+### 3. Set Environment Variables
 
 ```bash
 export DOCKERHUB_TOKEN="your-docker-hub-token"
@@ -57,9 +81,12 @@ export REPLICATION_PASSWORD="$(openssl rand -base64 32)"
 export ERPNEXT_ADMIN_PASSWORD="your-admin-password"
 export KAMAL_MASTER_HOST="your-master-ip"
 export KAMAL_SLAVE_HOST="your-slave-ip"
+
+# Generate base64 encoded apps.json for build
+export APPS_JSON_BASE64=$(base64 -w 0 apps.json)
 ```
 
-### 3. Deploy
+### 4. Deploy
 
 ```bash
 # Setup servers (first time only)
@@ -68,6 +95,20 @@ kamal setup
 # Or deploy updates
 kamal deploy
 ```
+
+## Custom Image Build
+
+The Dockerfile uses the [frappe_docker](https://github.com/frappe/frappe_docker) pattern with multi-stage builds:
+
+1. **Base stage**: System dependencies, Node.js, Python
+2. **Builder stage**: Installs Frappe and apps from `apps.json`
+3. **Production stage**: Minimal runtime image
+
+Build args:
+- `FRAPPE_VERSION`: Frappe branch (default: `version-15`)
+- `PYTHON_VERSION`: Python version (default: `3.11.9`)
+- `NODE_VERSION`: Node.js version (default: `18.20.2`)
+- `APPS_JSON_BASE64`: Base64-encoded apps.json
 
 ## Common Commands
 
@@ -97,7 +138,8 @@ kamal deploy
 │       └── pre-deploy           # Health checks
 ├── scripts/
 │   └── backup-commands.md  # Backup/restore reference
-├── Dockerfile              # ERPNext image
+├── apps.json               # Frappe apps to install
+├── Dockerfile              # Multi-stage ERPNext build
 └── CLAUDE.md               # Claude Code guidance
 ```
 
