@@ -135,11 +135,16 @@ RUN export APP_INSTALL_ARGS="" && \
 
 FROM base AS backend
 
+# Copy entrypoint script
+COPY --chmod=755 config/frappe/entrypoint.sh /usr/local/bin/entrypoint.sh
+
 USER frappe
 
 COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe/frappe-bench
 
 WORKDIR /home/frappe/frappe-bench
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 VOLUME [ \
   "/home/frappe/frappe-bench/sites", \

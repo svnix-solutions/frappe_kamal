@@ -27,8 +27,8 @@ proxy:
   app_port: 8000
   healthcheck:
     path: /api/method/ping
-    interval: 30
-    timeout: 5
+    interval: 10
+    timeout: 120
 
 # Docker Hub registry
 registry:
@@ -59,7 +59,7 @@ env:
     REDIS_QUEUE: redis://erpnext-redis-queue:6379
     SOCKETIO_PORT: "9000"
   secret:
-    - DB_PASSWORD
+    - MYSQL_ROOT_PASSWORD
     - ADMIN_PASSWORD
 
 # SSH configuration
@@ -84,12 +84,9 @@ accessories:
     env:
       clear:
         MYSQL_ROOT_HOST: '%'
-        MYSQL_DATABASE: erpnext
-        MYSQL_USER: erpnext
         MARIADB_AUTO_UPGRADE: "1"
       secret:
         - MYSQL_ROOT_PASSWORD
-        - MYSQL_PASSWORD
     files:
       - config/mariadb/mariadb.cnf:/etc/mysql/conf.d/custom.cnf
     directories:

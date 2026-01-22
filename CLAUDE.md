@@ -63,12 +63,11 @@ Set these before deploying:
 ```bash
 export DOCKERHUB_TOKEN="docker-hub-access-token"
 export MYSQL_ROOT_PASSWORD="strong-password"
-export MYSQL_PASSWORD="strong-password"
 export REPLICATION_USER="repl_user"
 export REPLICATION_PASSWORD="strong-password"
 export ERPNEXT_ADMIN_PASSWORD="admin-password"
-export KAMAL_MASTER_HOST="master-server-ip"
-export KAMAL_SLAVE_HOST="slave-server-ip"
+export PRIMARY_HOST="master-server-ip"
+export REPLICA_HOST="slave-server-ip"
 ```
 
 ## Key Files

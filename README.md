@@ -75,12 +75,11 @@ For private repos, use: `https://{PAT}@github.com/org/repo.git`
 ```bash
 export DOCKERHUB_TOKEN="your-docker-hub-token"
 export MYSQL_ROOT_PASSWORD="$(openssl rand -base64 32)"
-export MYSQL_PASSWORD="$(openssl rand -base64 32)"
 export REPLICATION_USER="repl_user"
 export REPLICATION_PASSWORD="$(openssl rand -base64 32)"
 export ERPNEXT_ADMIN_PASSWORD="your-admin-password"
-export KAMAL_MASTER_HOST="your-master-ip"
-export KAMAL_SLAVE_HOST="your-slave-ip"
+export PRIMARY_HOST="your-master-ip"
+export REPLICA_HOST="your-slave-ip"
 
 # Generate base64 encoded apps.json for build
 export APPS_JSON_BASE64=$(base64 -w 0 apps.json)
