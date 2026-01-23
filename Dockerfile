@@ -2,7 +2,7 @@ ARG PYTHON_VERSION=3.11.6
 ARG DEBIAN_BASE=bookworm
 FROM python:${PYTHON_VERSION}-slim-${DEBIAN_BASE} AS base
 
-COPY config/nginx/template.conf /templates/nginx/frappe.conf.template
+COPY config/nginx/template.conf /etc/nginx/templates/frappe.conf.template
 COPY config/nginx/entrypoint.sh /usr/local/bin/nginx-entrypoint.sh
 
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
@@ -72,7 +72,8 @@ RUN useradd -ms /bin/bash frappe \
     && chown -R frappe:frappe /var/lib/nginx \
     && chown -R frappe:frappe /run/nginx.pid \
     && chmod 755 /usr/local/bin/nginx-entrypoint.sh \
-    && chmod 644 /templates/nginx/frappe.conf.template
+    && mkdir -p /etc/nginx/templates \
+    && chmod 644 /etc/nginx/templates/frappe.conf.template
 
 FROM base AS builder
 
@@ -135,16 +136,11 @@ RUN export APP_INSTALL_ARGS="" && \
 
 FROM base AS backend
 
-# Copy entrypoint script
-COPY --chmod=755 config/frappe/entrypoint.sh /usr/local/bin/entrypoint.sh
-
 USER frappe
 
 COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe/frappe-bench
 
 WORKDIR /home/frappe/frappe-bench
-
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 VOLUME [ \
   "/home/frappe/frappe-bench/sites", \

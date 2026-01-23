@@ -1,34 +1,34 @@
 # ERPNext Kamal Deployment Configuration - Single Server Variant
 # All services run on one server (no replication, no slave)
+#
+# Architecture:
+#   nginx (web) -> gunicorn (backend API)
+#                -> socketio (WebSocket)
+#   worker (background jobs)
+#
 service: erpnext
 
-# Docker Hub image
+# ERPNext image (includes nginx, gunicorn, node)
 image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
 
 # Single server configuration
-# Web, worker, and all accessories run on the same host
 servers:
   web:
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
+    cmd: nginx-entrypoint.sh
     options:
-      memory: 2g
-  worker:
-    hosts:
-      - <%= ENV.fetch('PRIMARY_HOST') %>
-    cmd: bench worker --queue short,default,long
-    options:
-      memory: 1g
+      memory: 256m
 
 # SSL and proxy configuration
 proxy:
   ssl: true
   host: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-  app_port: 8000
+  app_port: 8080
   healthcheck:
-    path: /api/method/ping
-    interval: 10
-    timeout: 120
+    path: /up
+    interval: 3
+    timeout: 5
 
 # Docker Hub registry
 registry:
@@ -36,7 +36,7 @@ registry:
   password:
     - KAMAL_REGISTRY_PASSWORD
 
-# Builder configuration
+# Builder configuration for ERPNext image
 builder:
   arch: amd64
   context: .
@@ -48,31 +48,121 @@ builder:
     NODE_VERSION: 20.19.2
     APPS_JSON_BASE64: <%= Base64.strict_encode64(File.read('apps.json')) rescue '' %>
 
-# Environment variables
+# Environment variables for nginx
 env:
   clear:
-    # Frappe/ERPNext settings
+    BACKEND: erpnext-gunicorn:8000
+    SOCKETIO: erpnext-socketio:9000
     FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-    DB_HOST: erpnext-db
-    DB_PORT: "3306"
-    REDIS_CACHE: redis://erpnext-redis-cache:6379
-    REDIS_QUEUE: redis://erpnext-redis-queue:6379
-    SOCKETIO_PORT: "9000"
-  secret:
-    - MYSQL_ROOT_PASSWORD
-    - ADMIN_PASSWORD
+    UPSTREAM_REAL_IP_ADDRESS: "127.0.0.1"
+    UPSTREAM_REAL_IP_HEADER: "X-Forwarded-For"
+    UPSTREAM_REAL_IP_RECURSIVE: "off"
+    PROXY_READ_TIMEOUT: "120"
+    CLIENT_MAX_BODY_SIZE: "50m"
 
 # SSH configuration
 ssh:
   user: <%= ENV.fetch('SSH_USER', 'root') %>
 
-# Persistent storage volumes
+# Volumes for nginx (needs access to sites for static files)
 volumes:
-  - "erpnext_sites:/home/frappe/frappe-bench/sites"
-  - "erpnext_logs:/home/frappe/frappe-bench/logs"
+  - "erpnext_sites:/home/frappe/frappe-bench/sites:ro"
 
 # Accessory services - all on single host
 accessories:
+  # ============================================
+  # Configure Bench (runs before other services)
+  # ============================================
+  configure:
+    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
+    cmd: bash /scripts/configure.sh
+    env:
+      clear:
+        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
+        DB_HOST: erpnext-db
+        DB_PORT: "3306"
+        REDIS_CACHE: redis://erpnext-redis-cache:6379
+        REDIS_QUEUE: redis://erpnext-redis-queue:6379
+        SOCKETIO_PORT: "9000"
+      secret:
+        - MYSQL_ROOT_PASSWORD
+        - ADMIN_PASSWORD
+    files:
+      - config/frappe/configure.sh:/scripts/configure.sh
+    volumes:
+      - "erpnext_sites:/home/frappe/frappe-bench/sites"
+      - "erpnext_logs:/home/frappe/frappe-bench/logs"
+
+  # ============================================
+  # Gunicorn (Backend API Server)
+  # ============================================
+  gunicorn:
+    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
+    port: "8000:8000"
+    env:
+      clear:
+        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
+        DB_HOST: erpnext-db
+        DB_PORT: "3306"
+        REDIS_CACHE: redis://erpnext-redis-cache:6379
+        REDIS_QUEUE: redis://erpnext-redis-queue:6379
+        SOCKETIO_PORT: "9000"
+      secret:
+        - MYSQL_ROOT_PASSWORD
+        - ADMIN_PASSWORD
+    volumes:
+      - "erpnext_sites:/home/frappe/frappe-bench/sites"
+      - "erpnext_logs:/home/frappe/frappe-bench/logs"
+    options:
+      memory: 2g
+
+  # ============================================
+  # SocketIO (WebSocket Server)
+  # ============================================
+  socketio:
+    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
+    port: "9000:9000"
+    cmd: node /home/frappe/frappe-bench/apps/frappe/socketio.js
+    env:
+      clear:
+        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
+        REDIS_QUEUE: redis://erpnext-redis-queue:6379
+    volumes:
+      - "erpnext_sites:/home/frappe/frappe-bench/sites"
+      - "erpnext_logs:/home/frappe/frappe-bench/logs"
+    options:
+      memory: 512m
+
+  # ============================================
+  # Worker (Background Jobs)
+  # ============================================
+  worker:
+    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
+    cmd: bench worker --queue short,default,long
+    env:
+      clear:
+        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
+        DB_HOST: erpnext-db
+        DB_PORT: "3306"
+        REDIS_CACHE: redis://erpnext-redis-cache:6379
+        REDIS_QUEUE: redis://erpnext-redis-queue:6379
+      secret:
+        - MYSQL_ROOT_PASSWORD
+        - ADMIN_PASSWORD
+    volumes:
+      - "erpnext_sites:/home/frappe/frappe-bench/sites"
+      - "erpnext_logs:/home/frappe/frappe-bench/logs"
+    options:
+      memory: 1g
+
   # ============================================
   # MariaDB (Single Instance)
   # ============================================
@@ -141,8 +231,8 @@ accessories:
 
 # Deployment aliases
 aliases:
-  shell: app exec --interactive --reuse "bash"
-  console: app exec --interactive --reuse "bench console"
+  shell: accessory exec gunicorn "bash"
+  console: accessory exec gunicorn "bench console"
   logs: app logs -f
   db-shell: accessory exec db "mariadb -u root -p"
   db-backup-now: accessory exec db-backup "/backup.sh"

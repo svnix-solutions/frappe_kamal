@@ -21,23 +21,23 @@ if [[ ! -d "sites/${SITE_NAME}" ]]; then
 
     # Wait for MariaDB to be ready
     echo "Waiting for database..."
-    for i in {1..30}; do
+    for i in {1..60}; do
         if mariadb -h "${DB_HOST:-erpnext-db}" -P "${DB_PORT:-3306}" -u root -p"${MYSQL_ROOT_PASSWORD}" -e "SELECT 1" &>/dev/null; then
             echo "Database is ready!"
             break
         fi
-        echo "Waiting for database... ($i/30)"
+        echo "Waiting for database... ($i/60)"
         sleep 2
     done
 
-    # Create new site (without installing apps yet)
+    # Create new site
     bench new-site "${SITE_NAME}" \
         --db-host="${DB_HOST:-erpnext-db}" \
         --db-port="${DB_PORT:-3306}" \
         --db-root-username=root \
         --db-root-password="${MYSQL_ROOT_PASSWORD}" \
         --admin-password="${ADMIN_PASSWORD}" \
-        --no-mariadb-socket
+        --mariadb-user-host-login-scope='%'
 
     # Set as default site
     bench use "${SITE_NAME}"
@@ -54,5 +54,4 @@ else
     echo "=== Site ${SITE_NAME} already exists ==="
 fi
 
-# Execute the original command (gunicorn)
-exec "$@"
+echo "=== Configuration complete ==="

@@ -1,13 +1,14 @@
 #!/bin/bash
+set -e
 
 # Set variables that do not exist
 if [[ -z "$BACKEND" ]]; then
-  echo "BACKEND defaulting to 0.0.0.0:8000"
-  export BACKEND=0.0.0.0:8000
+  echo "BACKEND defaulting to erpnext-gunicorn:8000"
+  export BACKEND=erpnext-gunicorn:8000
 fi
 if [[ -z "$SOCKETIO" ]]; then
-  echo "SOCKETIO defaulting to 0.0.0.0:9000"
-  export SOCKETIO=0.0.0.0:9000
+  echo "SOCKETIO defaulting to erpnext-socketio:9000"
+  export SOCKETIO=erpnext-socketio:9000
 fi
 if [[ -z "$UPSTREAM_REAL_IP_ADDRESS" ]]; then
   echo "UPSTREAM_REAL_IP_ADDRESS defaulting to 127.0.0.1"
@@ -46,7 +47,7 @@ envsubst '${BACKEND}
   ${UPSTREAM_REAL_IP_RECURSIVE}
   ${FRAPPE_SITE_NAME_HEADER}
   ${PROXY_READ_TIMEOUT}
-	${CLIENT_MAX_BODY_SIZE}' \
-  </templates/nginx/frappe.conf.template >/etc/nginx/conf.d/frappe.conf
+  ${CLIENT_MAX_BODY_SIZE}' \
+  </etc/nginx/templates/frappe.conf.template >/etc/nginx/conf.d/default.conf
 
-nginx -g 'daemon off;'
+exec nginx -g 'daemon off;'
