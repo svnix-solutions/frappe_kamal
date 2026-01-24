@@ -4,24 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kamal deployment configuration for ERPNext on VPS servers with MariaDB master-slave replication.
+Kamal deployment configuration for ERPNext on a single VPS server.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      VPS Servers                            │
-├─────────────────────────────┬───────────────────────────────┤
-│  Server 1 (Master)          │  Server 2 (Slave)             │
-│  ├── erpnext (web)          │  ├── erpnext (worker)         │
-│  ├── db-master (MariaDB)    │  └── db-slave (MariaDB)       │
-│  ├── redis-cache            │                               │
-│  ├── redis-queue            │                               │
-│  └── db-backup              │                               │
-└─────────────────────────────┴───────────────────────────────┘
+┌─────────────────────────────────────────┐
+│              VPS Server                 │
+├─────────────────────────────────────────┤
+│  ├── web (supervisor)                   │
+│  │   ├── nginx (port 8080)              │
+│  │   ├── gunicorn (port 8000)           │
+│  │   └── socketio (port 9000)           │
+│  ├── worker (background jobs)           │
+│  ├── db (MariaDB)                       │
+│  ├── redis-cache                        │
+│  ├── redis-queue                        │
+│  └── db-backup                          │
+└─────────────────────────────────────────┘
 ```
 
-- **MariaDB Replication**: GTID-based master-slave, configured automatically via `post-accessory-boot` hook
+- **Web Container**: Runs nginx, gunicorn, and socketio via supervisor
 - **Backups**: Daily at 2 AM, 7-day retention via `fradelg/mysql-cron-backup`
 - **Image Registry**: Docker Hub
 
@@ -31,11 +34,11 @@ Kamal deployment configuration for ERPNext on VPS servers with MariaDB master-sl
 # Deploy application
 kamal deploy
 
-# Boot all accessories (databases, redis, backup)
+# Boot all accessories (database, redis, backup)
 kamal accessory boot all
 
 # Boot specific accessory
-kamal accessory boot db-master
+kamal accessory boot db
 
 # Check deployment status
 kamal app details
@@ -54,6 +57,9 @@ kamal db-backup-now
 
 # Access database shell
 kamal db-shell
+
+# Configure site (run once after first deploy)
+kamal app exec "configure.sh"
 ```
 
 ## Required Environment Variables
@@ -63,29 +69,29 @@ Set these before deploying:
 ```bash
 export DOCKERHUB_TOKEN="docker-hub-access-token"
 export MYSQL_ROOT_PASSWORD="strong-password"
-export REPLICATION_USER="repl_user"
-export REPLICATION_PASSWORD="strong-password"
 export ERPNEXT_ADMIN_PASSWORD="admin-password"
-export PRIMARY_HOST="master-server-ip"
-export REPLICA_HOST="slave-server-ip"
+export PRIMARY_HOST="server-ip"
+export ERPNEXT_DOMAIN="erp.example.com"
 ```
 
 ## Key Files
 
 - `config/deploy.yml` - Main Kamal configuration (servers, accessories, env vars)
 - `.kamal/secrets` - Secret mappings (reads from environment variables)
-- `.kamal/hooks/post-accessory-boot` - Automatic replication setup
-- `.kamal/hooks/pre-deploy` - Database health checks before deploy
-- `config/mariadb/master.cnf` - MariaDB master configuration
-- `config/mariadb/slave.cnf` - MariaDB slave configuration (read-only)
+- `.kamal/hooks/pre-deploy` - Directory setup and database health checks
+- `config/mariadb/mariadb.cnf` - MariaDB configuration
+- `config/supervisor/` - Supervisor configuration for web container
+- `config/frappe/configure.sh` - Site initialization script
 
 ## Before First Deploy
 
 1. Update `config/deploy.yml`:
    - Replace `your-dockerhub-username` with actual username
-   - Replace `192.168.0.1` / `192.168.0.2` with actual server IPs
+   - Replace `192.168.0.1` with actual server IP
    - Replace `erp.example.com` with actual domain
 
 2. Set all required environment variables
 
-3. Ensure SSH access to servers: `ssh root@your-server-ip`
+3. Ensure SSH access to server: `ssh root@your-server-ip`
+
+4. After first deploy, run: `kamal app exec "configure.sh"`

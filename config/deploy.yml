@@ -1,36 +1,23 @@
-# ERPNext Kamal Deployment Configuration - Multi-Server with Replication
+# ERPNext Kamal Deployment Configuration
 #
 # Architecture:
-#   Server 1 (Primary): web container (supervisor: nginx+gunicorn+socketio), db-master, redis
-#   Server 2 (Replica): worker, db-slave
-#
 #   web container (supervisor) -> nginx (port 8080)
 #                              -> gunicorn (port 8000)
 #                              -> socketio (port 9000)
-#   worker accessory (background jobs on replica)
+#   worker accessory (background jobs)
 #
 service: erpnext
 
 # ERPNext image (includes nginx, gunicorn, node, supervisor)
 image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
 
-# Server roles configuration
+# Single server configuration - runs supervisor with nginx+gunicorn+socketio
 servers:
   web:
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
     options:
       memory: 2g
-  db-primary:
-    hosts:
-      - <%= ENV.fetch('PRIMARY_HOST') %>
-    cmd: "echo 'Database role - no app to run'"
-    proxy: false
-  db-replica:
-    hosts:
-      - <%= ENV.fetch('REPLICA_HOST') %>
-    cmd: "echo 'Database role - no app to run'"
-    proxy: false
 
 # Proxy configuration (SSL disabled for testing)
 proxy:
@@ -64,7 +51,7 @@ builder:
 env:
   clear:
     FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-    DB_HOST: erpnext-db-master
+    DB_HOST: erpnext-db
     DB_PORT: "3306"
     REDIS_CACHE: redis://erpnext-redis-cache:6379
     REDIS_QUEUE: redis://erpnext-redis-queue:6379
@@ -85,17 +72,17 @@ volumes:
 # Accessory services
 accessories:
   # ============================================
-  # Worker (Background Jobs - on Replica)
+  # Worker (Background Jobs)
   # ============================================
   worker:
     image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
-    roles:
-      - db-replica
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     cmd: bench worker --queue short,default,long
     env:
       clear:
         FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-        DB_HOST: erpnext-db-master
+        DB_HOST: erpnext-db
         DB_PORT: "3306"
         REDIS_CACHE: redis://erpnext-redis-cache:6379
         REDIS_QUEUE: redis://erpnext-redis-queue:6379
@@ -110,12 +97,12 @@ accessories:
       memory: 1g
 
   # ============================================
-  # MariaDB Master (Primary)
+  # MariaDB (Single Instance)
   # ============================================
-  db-master:
+  db:
     image: mariadb:10.6
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "3306:3306"
     env:
       clear:
@@ -124,28 +111,7 @@ accessories:
       secret:
         - MYSQL_ROOT_PASSWORD
     files:
-      - config/mariadb/replication/master.cnf:/etc/mysql/conf.d/master.cnf
-    directories:
-      - data:/var/lib/mysql
-    options:
-      ulimit: "nofile=262144:262144"
-
-  # ============================================
-  # MariaDB Slave (Replica)
-  # ============================================
-  db-slave:
-    image: mariadb:10.6
-    roles:
-      - db-replica
-    port: "3306:3306"
-    env:
-      clear:
-        MYSQL_ROOT_HOST: '%'
-        MARIADB_AUTO_UPGRADE: "1"
-      secret:
-        - MYSQL_ROOT_PASSWORD
-    files:
-      - config/mariadb/replication/slave.cnf:/etc/mysql/conf.d/slave.cnf
+      - config/mariadb/mariadb.cnf:/etc/mysql/conf.d/custom.cnf
     directories:
       - data:/var/lib/mysql
     options:
@@ -156,11 +122,11 @@ accessories:
   # ============================================
   db-backup:
     image: fradelg/mysql-cron-backup:latest
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     env:
       clear:
-        MYSQL_HOST: erpnext-db-master
+        MYSQL_HOST: erpnext-db
         MYSQL_PORT: "3306"
         MYSQL_USER: root
         MAX_BACKUPS: "7"
@@ -177,8 +143,8 @@ accessories:
   # ============================================
   redis-cache:
     image: redis:7-alpine
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "6379:6379"
     cmd: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     directories:
@@ -189,8 +155,8 @@ accessories:
   # ============================================
   redis-queue:
     image: redis:7-alpine
-    roles:
-      - db-primary
+    hosts:
+      - <%= ENV.fetch('PRIMARY_HOST') %>
     port: "6380:6379"
     cmd: redis-server --appendonly yes
     directories:
@@ -201,6 +167,6 @@ aliases:
   shell: app exec "bash"
   console: app exec "bench console"
   logs: app logs -f
-  db-shell: accessory exec db-master "mariadb -u root -p"
+  db-shell: accessory exec db "mariadb -u root -p"
   db-backup-now: accessory exec db-backup "/backup.sh"
   # Note: Run configure manually with: kamal app exec "configure.sh" --user root
