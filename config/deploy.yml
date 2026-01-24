@@ -1,16 +1,17 @@
 # ERPNext Kamal Deployment Configuration - Multi-Server with Replication
 #
 # Architecture:
-#   Server 1 (Primary): nginx, gunicorn, socketio, db-master, redis
+#   Server 1 (Primary): web container (supervisor: nginx+gunicorn+socketio), db-master, redis
 #   Server 2 (Replica): worker, db-slave
 #
-#   nginx (web) -> gunicorn (backend API)
-#                -> socketio (WebSocket)
-#   worker (background jobs on replica)
+#   web container (supervisor) -> nginx (port 8080)
+#                              -> gunicorn (port 8000)
+#                              -> socketio (port 9000)
+#   worker accessory (background jobs on replica)
 #
 service: erpnext
 
-# ERPNext image (includes nginx, gunicorn, node)
+# ERPNext image (includes nginx, gunicorn, node, supervisor)
 image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
 
 # Server roles configuration
@@ -18,21 +19,22 @@ servers:
   web:
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
-    cmd: nginx-entrypoint.sh
     options:
-      memory: 256m
+      memory: 2g
   db-primary:
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
+    cmd: "echo 'Database role - no app to run'"
     proxy: false
   db-replica:
     hosts:
       - <%= ENV.fetch('REPLICA_HOST') %>
+    cmd: "echo 'Database role - no app to run'"
     proxy: false
 
-# SSL and proxy configuration
+# Proxy configuration (SSL disabled for testing)
 proxy:
-  ssl: true
+  ssl: false
   host: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
   app_port: 8080
   healthcheck:
@@ -58,97 +60,30 @@ builder:
     NODE_VERSION: 20.19.2
     APPS_JSON_BASE64: <%= Base64.strict_encode64(File.read('apps.json')) rescue '' %>
 
-# Environment variables for nginx
+# Environment variables for web container
 env:
   clear:
-    BACKEND: erpnext-gunicorn:8000
-    SOCKETIO: erpnext-socketio:9000
     FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-    UPSTREAM_REAL_IP_ADDRESS: "127.0.0.1"
-    UPSTREAM_REAL_IP_HEADER: "X-Forwarded-For"
-    UPSTREAM_REAL_IP_RECURSIVE: "off"
-    PROXY_READ_TIMEOUT: "120"
-    CLIENT_MAX_BODY_SIZE: "50m"
+    DB_HOST: erpnext-db-master
+    DB_PORT: "3306"
+    REDIS_CACHE: redis://erpnext-redis-cache:6379
+    REDIS_QUEUE: redis://erpnext-redis-queue:6379
+    SOCKETIO_PORT: "9000"
+  secret:
+    - MYSQL_ROOT_PASSWORD
+    - ADMIN_PASSWORD
 
 # SSH configuration
 ssh:
   user: <%= ENV.fetch('SSH_USER', 'root') %>
 
-# Volumes for nginx (needs access to sites for static files)
+# Volumes for web container (sites and logs)
 volumes:
-  - "erpnext_sites:/home/frappe/frappe-bench/sites:ro"
+  - "$HOME/erpnext/sites:/home/frappe/frappe-bench/sites"
+  - "$HOME/erpnext/logs:/home/frappe/frappe-bench/logs"
 
 # Accessory services
 accessories:
-  # ============================================
-  # Configure Bench (runs before other services)
-  # ============================================
-  configure:
-    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
-    roles:
-      - db-primary
-    cmd: bash /scripts/configure.sh
-    env:
-      clear:
-        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-        DB_HOST: erpnext-db-master
-        DB_PORT: "3306"
-        REDIS_CACHE: redis://erpnext-redis-cache:6379
-        REDIS_QUEUE: redis://erpnext-redis-queue:6379
-        SOCKETIO_PORT: "9000"
-      secret:
-        - MYSQL_ROOT_PASSWORD
-        - ADMIN_PASSWORD
-    files:
-      - config/frappe/configure.sh:/scripts/configure.sh
-    volumes:
-      - "erpnext_sites:/home/frappe/frappe-bench/sites"
-      - "erpnext_logs:/home/frappe/frappe-bench/logs"
-
-  # ============================================
-  # Gunicorn (Backend API Server)
-  # ============================================
-  gunicorn:
-    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
-    roles:
-      - db-primary
-    port: "8000:8000"
-    env:
-      clear:
-        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-        DB_HOST: erpnext-db-master
-        DB_PORT: "3306"
-        REDIS_CACHE: redis://erpnext-redis-cache:6379
-        REDIS_QUEUE: redis://erpnext-redis-queue:6379
-        SOCKETIO_PORT: "9000"
-      secret:
-        - MYSQL_ROOT_PASSWORD
-        - ADMIN_PASSWORD
-    volumes:
-      - "erpnext_sites:/home/frappe/frappe-bench/sites"
-      - "erpnext_logs:/home/frappe/frappe-bench/logs"
-    options:
-      memory: 2g
-
-  # ============================================
-  # SocketIO (WebSocket Server)
-  # ============================================
-  socketio:
-    image: <%= ENV.fetch('DOCKER_IMAGE', 'astamia/erpnext') %>
-    roles:
-      - db-primary
-    port: "9000:9000"
-    cmd: node /home/frappe/frappe-bench/apps/frappe/socketio.js
-    env:
-      clear:
-        FRAPPE_SITE_NAME_HEADER: <%= ENV.fetch('ERPNEXT_DOMAIN', 'erp.example.com') %>
-        REDIS_QUEUE: redis://erpnext-redis-queue:6379
-    volumes:
-      - "erpnext_sites:/home/frappe/frappe-bench/sites"
-      - "erpnext_logs:/home/frappe/frappe-bench/logs"
-    options:
-      memory: 512m
-
   # ============================================
   # Worker (Background Jobs - on Replica)
   # ============================================
@@ -164,12 +99,13 @@ accessories:
         DB_PORT: "3306"
         REDIS_CACHE: redis://erpnext-redis-cache:6379
         REDIS_QUEUE: redis://erpnext-redis-queue:6379
+        SOCKETIO_PORT: "9000"
       secret:
         - MYSQL_ROOT_PASSWORD
         - ADMIN_PASSWORD
     volumes:
-      - "erpnext_sites:/home/frappe/frappe-bench/sites"
-      - "erpnext_logs:/home/frappe/frappe-bench/logs"
+      - "$HOME/erpnext/sites:/home/frappe/frappe-bench/sites"
+      - "$HOME/erpnext/logs:/home/frappe/frappe-bench/logs"
     options:
       memory: 1g
 
@@ -262,8 +198,9 @@ accessories:
 
 # Deployment aliases
 aliases:
-  shell: accessory exec gunicorn "bash"
-  console: accessory exec gunicorn "bench console"
+  shell: app exec "bash"
+  console: app exec "bench console"
   logs: app logs -f
   db-shell: accessory exec db-master "mariadb -u root -p"
   db-backup-now: accessory exec db-backup "/backup.sh"
+  # Note: Run configure manually with: kamal app exec "configure.sh" --user root

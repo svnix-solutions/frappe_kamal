@@ -4,6 +4,9 @@ FROM python:${PYTHON_VERSION}-slim-${DEBIAN_BASE} AS base
 
 COPY config/nginx/template.conf /etc/nginx/templates/frappe.conf.template
 COPY config/nginx/entrypoint.sh /usr/local/bin/nginx-entrypoint.sh
+COPY config/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY config/supervisor/entrypoint.sh /usr/local/bin/supervisor-entrypoint.sh
+COPY config/frappe/configure.sh /usr/local/bin/configure.sh
 
 ARG WKHTMLTOPDF_VERSION=0.12.6.1-3
 ARG WKHTMLTOPDF_DISTRO=bookworm
@@ -18,6 +21,7 @@ RUN useradd -ms /bin/bash frappe \
     git \
     vim \
     nginx \
+    supervisor \
     gettext-base \
     file \
     # weasyprint dependencies
@@ -72,7 +76,10 @@ RUN useradd -ms /bin/bash frappe \
     && chown -R frappe:frappe /var/lib/nginx \
     && chown -R frappe:frappe /run/nginx.pid \
     && chmod 755 /usr/local/bin/nginx-entrypoint.sh \
+    && chmod 755 /usr/local/bin/supervisor-entrypoint.sh \
+    && chmod 755 /usr/local/bin/configure.sh \
     && mkdir -p /etc/nginx/templates \
+    && mkdir -p /etc/supervisor/conf.d \
     && chmod 644 /etc/nginx/templates/frappe.conf.template
 
 FROM base AS builder
@@ -142,21 +149,7 @@ COPY --from=builder --chown=frappe:frappe /home/frappe/frappe-bench /home/frappe
 
 WORKDIR /home/frappe/frappe-bench
 
-VOLUME [ \
-  "/home/frappe/frappe-bench/sites", \
-  "/home/frappe/frappe-bench/sites/assets", \
-  "/home/frappe/frappe-bench/logs" \
-]
+# Note: Volumes are managed by Kamal, not declared here
+# This avoids anonymous volume creation that breaks sharing between containers
 
-CMD [ \
-  "/home/frappe/frappe-bench/env/bin/gunicorn", \
-  "--chdir=/home/frappe/frappe-bench/sites", \
-  "--bind=0.0.0.0:8000", \
-  "--threads=4", \
-  "--workers=2", \
-  "--worker-class=gthread", \
-  "--worker-tmp-dir=/dev/shm", \
-  "--timeout=120", \
-  "--preload", \
-  "frappe.app:application" \
-]
+CMD ["/usr/local/bin/supervisor-entrypoint.sh"]

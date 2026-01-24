@@ -5,12 +5,23 @@
 
 set -e
 
-source .kamal/secrets 2>/dev/null || true
-
-ROOT_PASS="${MYSQL_ROOT_PASSWORD}"
+# Use environment variables directly (set by env-cmd or shell)
+ROOT_PASS="${MYSQL_ROOT_PASSWORD:-}"
 PRIMARY_HOST="${PRIMARY_HOST:-192.168.0.1}"
 REPLICA_HOST="${REPLICA_HOST:-$PRIMARY_HOST}"
 SSH_USER="${SSH_USER:-root}"
+
+# echo "=== Pre-deploy: Setting up directories ==="
+
+# # Create and fix permissions for mounted volumes (frappe user has uid 1000)
+# ssh ${SSH_USER}@$PRIMARY_HOST "mkdir -p /home/$SSH_USER/erpnext/sites /home/$SSH_USER/erpnext/logs && chown -R 1000:1000 /home/$SSH_USER/erpnext"
+# echo "✓ Directories ready on primary host"
+
+# # For multi-server, also setup on replica
+# if [[ "$REPLICA_HOST" != "$PRIMARY_HOST" ]]; then
+#     ssh ${SSH_USER}@$REPLICA_HOST "mkdir -p /home/$SSH_USER/erpnext/sites /home/$SSH_USER/erpnext/logs && chown -R 1000:1000 /home/$SSH_USER/erpnext" 2>/dev/null || true
+#     echo "✓ Directories ready on replica host"
+# fi
 
 echo "=== Pre-deploy: Checking database health ==="
 
