@@ -11,8 +11,14 @@ SSH_USER="${SSH_USER:-root}"
 
 echo "=== Pre-deploy: Setting up directories ==="
 
-# Create and fix permissions for mounted volumes (frappe user has uid 1000)
-ssh ${SSH_USER}@$PRIMARY_HOST "mkdir -p \$HOME/erpnext/sites \$HOME/erpnext/logs && chown -R 1000:1000 \$HOME/erpnext"
+# Create directories on block storage volumes (mounted by Terraform)
+# frappe user has uid 1000, mysql user has uid 999
+ssh ${SSH_USER}@$PRIMARY_HOST "
+  mkdir -p /mnt/sites /mnt/logs /mnt/db-data /mnt/backups /mnt/redis/cache /mnt/redis/queue
+  chown -R 1000:1000 /mnt/sites /mnt/logs
+  chown -R 999:999 /mnt/db-data
+  chown -R 999:999 /mnt/redis
+"
 echo "✓ Directories ready on primary host"
 
 echo "=== Pre-deploy: Checking database health ==="

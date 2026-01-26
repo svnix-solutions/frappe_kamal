@@ -65,9 +65,10 @@ ssh:
   user: <%= ENV.fetch('SSH_USER', 'root') %>
 
 # Volumes for web container (sites and logs)
+# Using block storage mount points from Terraform
 volumes:
-  - "$HOME/erpnext/sites:/home/frappe/frappe-bench/sites"
-  - "$HOME/erpnext/logs:/home/frappe/frappe-bench/logs"
+  - "/mnt/sites:/home/frappe/frappe-bench/sites"
+  - "/mnt/logs:/home/frappe/frappe-bench/logs"
 
 # Accessory services
 accessories:
@@ -91,8 +92,8 @@ accessories:
         - MYSQL_ROOT_PASSWORD
         - ADMIN_PASSWORD
     volumes:
-      - "$HOME/erpnext/sites:/home/frappe/frappe-bench/sites"
-      - "$HOME/erpnext/logs:/home/frappe/frappe-bench/logs"
+      - "/mnt/sites:/home/frappe/frappe-bench/sites"
+      - "/mnt/logs:/home/frappe/frappe-bench/logs"
     options:
       memory: 1g
 
@@ -113,7 +114,7 @@ accessories:
     files:
       - config/mariadb/mariadb.cnf:/etc/mysql/conf.d/custom.cnf
     directories:
-      - data:/var/lib/mysql
+      - /mnt/db-data:/var/lib/mysql
     options:
       ulimit: "nofile=262144:262144"
 
@@ -136,7 +137,7 @@ accessories:
       secret:
         - MYSQL_PASS
     directories:
-      - backups:/backup
+      - /mnt/backups:/backup
 
   # ============================================
   # Redis Cache
@@ -148,7 +149,7 @@ accessories:
     port: "6379:6379"
     cmd: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     directories:
-      - cache-data:/data
+      - /mnt/redis/cache:/data
 
   # ============================================
   # Redis Queue
@@ -160,7 +161,7 @@ accessories:
     port: "6380:6379"
     cmd: redis-server --appendonly yes
     directories:
-      - queue-data:/data
+      - /mnt/redis/queue:/data
 
 # Deployment aliases
 aliases:
