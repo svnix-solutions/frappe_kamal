@@ -104,7 +104,6 @@ accessories:
     image: mariadb:10.6
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
-    port: "3306:3306"
     env:
       clear:
         MYSQL_ROOT_HOST: '%'
@@ -146,7 +145,6 @@ accessories:
     image: redis:7-alpine
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
-    port: "6379:6379"
     cmd: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     directories:
       - /mnt/redis/cache:/data
@@ -158,7 +156,6 @@ accessories:
     image: redis:7-alpine
     hosts:
       - <%= ENV.fetch('PRIMARY_HOST') %>
-    port: "6380:6379"
     cmd: redis-server --appendonly yes
     directories:
       - /mnt/redis/queue:/data

@@ -6,14 +6,21 @@ set -e
 
 # Use environment variables directly (set by env-cmd or shell)
 ROOT_PASS="${MYSQL_ROOT_PASSWORD:-}"
-PRIMARY_HOST="${PRIMARY_HOST:-192.168.0.1}"
+PRIMARY_HOST="${PRIMARY_HOST:-}"
 SSH_USER="${SSH_USER:-root}"
 
+# Skip if PRIMARY_HOST is not set
+if [[ -z "$PRIMARY_HOST" ]]; then
+    echo "⚠ PRIMARY_HOST not set - skipping pre-deploy hook"
+    exit 0
+fi
+
 echo "=== Pre-deploy: Setting up directories ==="
+echo "Host: ${PRIMARY_HOST}, User: ${SSH_USER}"
 
 # Create directories on block storage volumes (mounted by Terraform)
 # frappe user has uid 1000, mysql user has uid 999
-ssh ${SSH_USER}@$PRIMARY_HOST "
+ssh "${SSH_USER}@${PRIMARY_HOST}" "
   mkdir -p /mnt/sites /mnt/logs /mnt/db-data /mnt/backups /mnt/redis/cache /mnt/redis/queue
   chown -R 1000:1000 /mnt/sites /mnt/logs
   chown -R 999:999 /mnt/db-data
@@ -24,14 +31,14 @@ echo "✓ Directories ready on primary host"
 echo "=== Pre-deploy: Checking database health ==="
 
 # Check if database container exists
-if ! ssh -o ConnectTimeout=5 ${SSH_USER}@$PRIMARY_HOST "docker ps -q -f name=erpnext-db$" 2>/dev/null | grep -q .; then
+if ! ssh -o ConnectTimeout=5 "${SSH_USER}@${PRIMARY_HOST}" "docker ps -q -f name=erpnext-db$" 2>/dev/null | grep -q .; then
     echo "⚠ No database container found - skipping checks (initial setup)"
     echo "=== Pre-deploy checks skipped (first deployment) ==="
     exit 0
 fi
 
 echo "Checking database..."
-if ssh ${SSH_USER}@$PRIMARY_HOST "docker exec erpnext-db mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
+if ssh "${SSH_USER}@${PRIMARY_HOST}" "docker exec erpnext-db mariadb -u root -p${ROOT_PASS} -e 'SELECT 1'" &>/dev/null; then
     echo "✓ Database is healthy"
 else
     echo "✗ Database is not accessible"
